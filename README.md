@@ -1,4 +1,8 @@
-# Nestify
+<p align="center">
+  <img src="./web/src/assets/icons/logo.svg" alt="Nestify" width="120" />
+</p>
+
+<h1 align="center">Nestify</h1>
 
 **Nestify** is a monorepo for the active platform stack: API, web client, TV client, and source aggregation service.
 
