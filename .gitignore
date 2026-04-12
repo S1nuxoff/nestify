@@ -18,7 +18,7 @@ app/mapper
 .env
 .env.local
 backend/.env
-frontend-vite/.env
+web/.env
 .env.development.local
 .env.test.local
 .env.production.local
@@ -28,6 +28,8 @@ yarn-debug.log*
 yarn-error.log*
 /backup
 frontend/node_modules
+web/node_modules/
+tv/node_modules/
 
 
 # deps / билды / кеши
@@ -37,6 +39,8 @@ frontend/node_modules/
 dist/
 .cache/
 frontend/.cache/
+web/.cache/
+tv/.cache/
 **/.cache/
 .parcel-cache/
 .next/
@@ -65,9 +69,6 @@ jacred/tackers.md
 jacred/Data/torrents.json
 hls_cache
 testapi
-
-lampa-source
-lampa-source/
 
 # local legacy apps kept only on this machine
 legacy/
