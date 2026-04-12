@@ -1,5 +1,0 @@
-.route-page-wrapper {
-  min-height: 100vh;
-  /* ВАЖЛИВО: ніяких transform / filter тут */
-  will-change: opacity, margin-top;
-}

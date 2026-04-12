@@ -68,3 +68,6 @@ testapi
 
 lampa-source
 lampa-source/
+
+# local legacy apps kept only on this machine
+legacy/
