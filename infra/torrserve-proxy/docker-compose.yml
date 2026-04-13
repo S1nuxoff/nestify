@@ -1,0 +1,25 @@
+services:
+  torrserve:
+    image: ghcr.io/yourok/torrserver:latest
+    container_name: torrserve
+    restart: unless-stopped
+    expose:
+      - "8090"
+    volumes:
+      - torrserve_data:/opt/torrserver/db
+    environment:
+      - TZ=Europe/Warsaw
+
+  streams-proxy:
+    image: nginx:alpine
+    container_name: streams-proxy
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - torrserve
+
+volumes:
+  torrserve_data:
