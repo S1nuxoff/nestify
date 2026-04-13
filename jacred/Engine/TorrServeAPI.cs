@@ -20,7 +20,17 @@ namespace JacRed.Engine.CORE
 
         static TorrServerAPI()
         {
-            db = JsonStream.Read<ConcurrentDictionary<string, List<MediaInfo>>>("Data/temp/torfiles.json");
+            if (JsonStream.TryRead("Data/temp/torfiles.json", out ConcurrentDictionary<string, List<MediaInfo>> loadedDb, out string sourcePath, out Exception error) && loadedDb != null)
+            {
+                db = loadedDb;
+                Console.WriteLine($"[TorrServeAPI] loaded torfiles db from {sourcePath}");
+            }
+            else
+            {
+                db = new ConcurrentDictionary<string, List<MediaInfo>>();
+                if (error != null)
+                    Console.WriteLine($"[TorrServeAPI] failed to load torfiles db: {error.Message}");
+            }
         }
         #endregion
 

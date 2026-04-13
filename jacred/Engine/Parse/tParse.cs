@@ -17,8 +17,18 @@ namespace JacRed.Engine.Parse
 
         static tParse()
         {
-            if (File.Exists("Data/torrents.json") || File.Exists("Data/torrents.json.gz"))
-                db = JsonStream.Read<ConcurrentDictionary<string, TorrentDetails>>("Data/torrents.json");
+            if (File.Exists("Data/torrents.json") || File.Exists("Data/torrents.json.gz") || File.Exists("Data/torrents.json.bak.gz"))
+            {
+                if (JsonStream.TryRead("Data/torrents.json", out ConcurrentDictionary<string, TorrentDetails> loadedDb, out string sourcePath, out Exception error) && loadedDb != null)
+                {
+                    db = loadedDb;
+                    Console.WriteLine($"[tParse] loaded torrents db from {sourcePath}");
+                }
+                else if (error != null)
+                {
+                    Console.WriteLine($"[tParse] failed to load torrents db: {error.Message}");
+                }
+            }
 
             foreach (var item in db)
                 AddOrUpdateSearchDb(item.Value);
