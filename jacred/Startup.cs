@@ -51,9 +51,12 @@ namespace JacRed
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env, IMemoryCache memoryCache)
         {
             ApplicationServices = app.ApplicationServices;
-            app.UseDeveloperExceptionPage();
+            if (env.EnvironmentName == "Development")
+                app.UseDeveloperExceptionPage();
+            else
+                app.UseExceptionHandler("/health/error");
 
-            // IP клиента
+            // IP ГЄГ«ГЁГҐГ­ГІГ 
             app.UseForwardedHeaders(new ForwardedHeadersOptions
             {
                 ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
@@ -61,10 +64,24 @@ namespace JacRed
 
             app.UseRouting();
             app.UseResponseCompression();
+            app.UseMiddleware<RequestLogMiddleware>();
             app.UseModHeaders();
 
             app.UseEndpoints(endpoints =>
             {
+                endpoints.MapGet("/health", async context =>
+                {
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync("{\"status\":\"ok\",\"service\":\"jacred\"}");
+                });
+
+                endpoints.MapGet("/health/error", async context =>
+                {
+                    context.Response.StatusCode = 500;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync("{\"status\":\"error\",\"service\":\"jacred\"}");
+                });
+
                 endpoints.MapControllers();
             });
         }

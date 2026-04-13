@@ -29,6 +29,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
@@ -47,7 +48,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     private static final long PLAY_TOGGLE_GUARD_MS = 800L;
     private static final String STATE_WEBVIEW = "webview_state";
     private static final long SERVER_SETTINGS_SHORTCUT_WINDOW_MS = 1_500L;
-    private static final int MAX_PLAYBACK_ERROR_RECOVERIES = 1;
+    private static final int MAX_PLAYBACK_ERROR_RECOVERIES = 2;
     private static final int[] SERVER_SETTINGS_SHORTCUT = new int[] {
         KeyEvent.KEYCODE_DPAD_LEFT,
         KeyEvent.KEYCODE_DPAD_RIGHT,
@@ -338,13 +339,23 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     }
 
     private void setupPlayer() {
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                3_000,
+                30_000,
+                1_000,
+                1_500
+            )
+            .build();
         player = new ExoPlayer.Builder(this)
+            .setLoadControl(loadControl)
             .setSeekBackIncrementMs(10_000L)
             .setSeekForwardIncrementMs(10_000L)
             .build();
         playerView.setPlayer(player);
         playerView.setUseController(true);
         playerView.setControllerAutoShow(true);
+        playerView.setControllerShowTimeoutMs(2_500);
         playerView.setControllerHideOnTouch(false);
         playerView.setKeepScreenOn(true);
         player.addListener(new Player.Listener() {
@@ -564,6 +575,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         }
         playbackErrorRecoveries += 1;
         long resumePositionMs = Math.max(player.getCurrentPosition(), 0L);
+        long retryDelayMs = 300L + (playbackErrorRecoveries - 1L) * 700L;
         mainHandler.postDelayed(() -> {
             if (!isPlayerVisible() || player == null || currentPlaybackUrl == null || currentPlaybackUrl.isBlank()) {
                 return;
@@ -577,7 +589,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
             }
             lastPlaybackStartAt = System.currentTimeMillis();
             player.play();
-        }, 300L);
+        }, retryDelayMs);
         return true;
     }
 
@@ -839,11 +851,6 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         }
 
         if (!isPlayerVisible() && handleServerSettingsShortcut(event)) {
-            return true;
-        }
-
-        if (event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
-            showServerSettings();
             return true;
         }
 

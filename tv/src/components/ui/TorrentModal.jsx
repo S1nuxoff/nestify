@@ -72,6 +72,33 @@ function extractBtih(magnet) {
 
 const QUALITY_COLOR = { "4K": "#f59e0b", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#9ca3af" };
 
+function estimateBufferedSeconds(file, durationSeconds, preloadedBytes) {
+  if (!file?.size || !durationSeconds || durationSeconds <= 0 || !preloadedBytes) return null;
+  const bytesPerSecond = file.size / durationSeconds;
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return null;
+  return preloadedBytes / bytesPerSecond;
+}
+
+function shouldStartPlayback(status, elapsed, file, durationSeconds, mode = "tv") {
+  const stat = Number(status?.stat || 0);
+  const peers = Number(status?.peers_connected || 0);
+  const preloadProgress = Number(status?.preload_progress || 0);
+  const preloadedBytes = Number(status?.preloaded_bytes || 0);
+  const bufferedSeconds = estimateBufferedSeconds(file, durationSeconds, preloadedBytes);
+
+  if (stat >= 3) return true;
+  if (bufferedSeconds !== null) {
+    const minBufferedSeconds = mode === "tv" ? 12 : 18;
+    if (bufferedSeconds >= minBufferedSeconds) return true;
+  }
+
+  const enoughBytes = mode === "tv" ? 8 * 1024 * 1024 : 24 * 1024 * 1024;
+  if (preloadedBytes >= enoughBytes && peers > 0 && stat >= 2) return true;
+  if (preloadProgress >= 0.08 && peers >= 2 && elapsed >= 2) return true;
+  if (elapsed >= 4 && peers > 0 && stat >= 2) return true;
+  return false;
+}
+
 // TV remote keycodes
 const BACK_CODES  = new Set([8, 27, 461, 10009, 88]);
 const ENTER_CODES = new Set([13, 29443, 65385, 117]);
@@ -205,6 +232,7 @@ export default function TorrentModal({
       stat_string: "Підключення...",
       elapsed: 0,
       preload_progress: 0,
+      buffered_seconds: null,
     });
     setStep("preload");
     const hash = currentHash;
@@ -221,17 +249,17 @@ export default function TorrentModal({
         const s = await getTorrentStatus(hash);
         const stat = s.stat || 0;
         const preloadProgress = Number(s.preload_progress || 0);
+        const preloadedBytes = Number(s.preloaded_bytes || 0);
+        const bufferedSeconds = estimateBufferedSeconds(file, fileDurationSeconds, preloadedBytes);
         setPreloadInfo({
           peers: s.peers_connected || 0,
           stat,
           stat_string: s.stat_string || "",
           elapsed,
           preload_progress: preloadProgress,
+          buffered_seconds: bufferedSeconds,
         });
-        const readyByPreload = preloadProgress >= 0.15;
-        const readyByState = stat >= 3;
-        const softReady = elapsed >= 3 && (s.peers_connected || 0) > 0 && stat >= 2;
-        if (readyByPreload || readyByState || softReady) {
+        if (shouldStartPlayback(s, elapsed, file, fileDurationSeconds, "tv")) {
           clearInterval(pollRef.current);
           executeAction(type, file, fileDurationSeconds);
         }
@@ -681,6 +709,9 @@ export default function TorrentModal({
             <div className="tv-preload__title">Підготовка…</div>
             <div className="tv-preload__stats">
               <div className="tv-preload__stat">👥 {preloadInfo.peers} пірів</div>
+              {preloadInfo.buffered_seconds ? (
+                <div className="tv-preload__stat">▶ {Math.round(preloadInfo.buffered_seconds)}с буферу</div>
+              ) : null}
             </div>
             {preloadInfo.stat_string && <div className="tv-preload__status">{preloadInfo.stat_string}</div>}
             <button className="tv-preload__skip"

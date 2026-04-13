@@ -136,13 +136,13 @@ async def play(
 
         async def stream_direct(client, response):
             try:
-                async for chunk in response.aiter_bytes(chunk_size=65536):
+                async for chunk in response.aiter_bytes(chunk_size=262144):
                     yield chunk
             finally:
                 await response.aclose()
                 await client.aclose()
 
-        client = httpx.AsyncClient(timeout=None)
+        client = httpx.AsyncClient(timeout=None, follow_redirects=True)
         req = client.build_request("GET", source_url, headers=headers)
         response = await client.send(req, stream=True)
 

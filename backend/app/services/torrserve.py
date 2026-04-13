@@ -66,7 +66,7 @@ async def add_torrent(magnet: str, title: str = "", poster: str = "") -> dict:
             raise HTTPException(502, "TorrServe didn't return hash")
 
         files = []
-        poll_delays = [0.35] * 6 + [0.75] * 8 + [1.5] * 10
+        poll_delays = [0.25] * 8 + [0.5] * 8 + [1.0] * 12
         for delay in poll_delays:
             r = await _post_torrserve(
                 client,
@@ -81,7 +81,7 @@ async def add_torrent(magnet: str, title: str = "", poster: str = "") -> dict:
             await asyncio.sleep(delay)
 
     if not files:
-        raise HTTPException(504, "TorrServe: files not ready in 40 seconds")
+        raise HTTPException(504, "TorrServe: files not ready in 18 seconds")
 
     return {"hash": hash_, "files": _build_stream_files(hash_, files)}
 

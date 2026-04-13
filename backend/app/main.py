@@ -1,3 +1,7 @@
+import json
+import logging
+import time
+import uuid
 import uvicorn
 from fastapi import FastAPI
 from fastapi import Request
@@ -16,6 +20,8 @@ from app.websockets import player_hub
 from fastapi.responses import StreamingResponse
 import httpx
 
+logger = logging.getLogger("nestify.backend")
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -37,6 +43,49 @@ app.add_middleware(
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    start = time.perf_counter()
+    response = None
+    error = None
+
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        client_ip = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")
+        log_payload = {
+            "service": "backend",
+            "event": "http_request",
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "query": str(request.url.query or ""),
+            "status_code": response.status_code if response is not None else 500,
+            "duration_ms": duration_ms,
+            "client_ip": client_ip,
+        }
+        if error is not None:
+            log_payload["error"] = repr(error)
+        logger.info(json.dumps(log_payload, ensure_ascii=False))
+        if response is not None:
+            response.headers["x-request-id"] = request_id
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "service": "backend",
+        "version": settings.VERSION,
+    }
 
 
 @app.get("/proxy")
