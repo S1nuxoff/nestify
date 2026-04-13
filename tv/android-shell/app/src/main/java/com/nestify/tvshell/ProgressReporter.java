@@ -1,6 +1,7 @@
 package com.nestify.tvshell;
 
 import android.content.Context;
+import android.util.Log;
 
 import org.json.JSONObject;
 
@@ -9,6 +10,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 final class ProgressReporter {
+    private static final String TAG = "NestifyProgress";
     private static final long INTERVAL_MS = 5000L;
     private static final long MIN_DELTA_MS = 3000L;
 
@@ -25,10 +27,10 @@ final class ProgressReporter {
     }
 
     static synchronized void start(Context context, StatusProvider provider) {
+        appContext = context.getApplicationContext();
         if (running) {
             return;
         }
-        appContext = context.getApplicationContext();
         running = true;
         thread = new Thread(() -> {
             while (running) {
@@ -55,7 +57,17 @@ final class ProgressReporter {
     }
 
     static void reportImmediate(JSONObject status) {
-        sendProgress(status, true);
+        dispatch(status, true);
+    }
+
+    static void initialize(Context context) {
+        if (context != null) {
+            appContext = context.getApplicationContext();
+        }
+    }
+
+    private static void dispatch(JSONObject status, boolean force) {
+        new Thread(() -> sendProgress(status, force), "nestify-progress-once").start();
     }
 
     static void syncPosition(long positionMs) {
@@ -64,38 +76,42 @@ final class ProgressReporter {
 
     private static void sendProgress(JSONObject st, boolean force) {
         if (st == null) {
+            Log.d(TAG, "skip: status is null");
             return;
         }
 
         int userId = parseInt(st.opt("user_id"));
         if (userId <= 0) {
+            Log.d(TAG, "skip: invalid user_id=" + st.opt("user_id"));
             return;
         }
 
         String movieId = st.optString("movie_id", "");
         if (movieId.isBlank()) {
+            Log.d(TAG, "skip: movie_id is blank");
             return;
         }
 
         long durationMs = st.optLong("duration_ms", 0L);
-        if (durationMs <= 0) {
-            return;
-        }
+        Integer durationSeconds = durationMs > 0 ? (int) (durationMs / 1000L) : null;
 
         boolean isPlaying = st.optBoolean("is_playing", false);
         long positionMs = st.optLong("position_ms", 0L);
 
         if (!force && !isPlaying) {
+            Log.d(TAG, "skip: not playing");
             return;
         }
 
         if (!force && lastSentPosMs >= 0 && Math.abs(positionMs - lastSentPosMs) < MIN_DELTA_MS) {
+            Log.d(TAG, "skip: delta too small positionMs=" + positionMs + " lastSentPosMs=" + lastSentPosMs);
             return;
         }
 
         HttpURLConnection conn = null;
         try {
             if (appContext == null) {
+                Log.d(TAG, "skip: appContext is null");
                 return;
             }
             URL url = new URL(ServerConfig.getBackendBaseUrl(appContext) + "/api/v3/watch/progress");
@@ -110,7 +126,7 @@ final class ProgressReporter {
                 .put("user_id", userId)
                 .put("movie_id", movieId)
                 .put("position_seconds", positionMs / 1000)
-                .put("duration", durationMs / 1000)
+                .put("duration", durationSeconds != null ? durationSeconds : JSONObject.NULL)
                 .put("season", st.has("season") ? st.opt("season") : JSONObject.NULL)
                 .put("episode", st.has("episode") ? st.opt("episode") : JSONObject.NULL)
                 .put("torrent_hash", optOrNull(st, "torrent_hash"))
@@ -124,9 +140,11 @@ final class ProgressReporter {
                 os.flush();
             }
 
-            conn.getResponseCode();
+            int code = conn.getResponseCode();
+            Log.d(TAG, "sent: code=" + code + " user_id=" + userId + " movie_id=" + movieId + " position=" + (positionMs / 1000));
             lastSentPosMs = positionMs;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            Log.e(TAG, "send failed", e);
         } finally {
             if (conn != null) {
                 conn.disconnect();

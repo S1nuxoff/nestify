@@ -72,3 +72,4 @@ testapi
 
 # local legacy apps kept only on this machine
 legacy/
+docs/self-hosting-action-plan.md

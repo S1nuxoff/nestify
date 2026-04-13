@@ -3,34 +3,12 @@
    ============================================================ */
 
 .auth-page {
-  position: relative;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 48px 32px 60px;
   background: var(--bg, #07090d);
-}
-
-.auth-server-settings-btn {
-  position: absolute;
-  top: 24px;
-  right: 24px;
-  z-index: 5;
-  padding: 10px 16px;
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
-  outline: none;
-}
-
-.auth-server-settings-btn:focus-visible,
-body.tv-mode .auth-server-settings-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px #07090d, 0 0 0 5px #fff;
 }
 
 .auth-logo {

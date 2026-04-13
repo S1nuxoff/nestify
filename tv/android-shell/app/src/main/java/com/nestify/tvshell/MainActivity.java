@@ -44,12 +44,20 @@ import java.net.URL;
 public class MainActivity extends AppCompatActivity implements PlayerWsClient.Listener {
     private static final String BRIDGE_NAME = "AndroidBridge";
     private static final long PRECISE_SEEK_MS = 5_000L;
+    private static final long PLAY_TOGGLE_GUARD_MS = 800L;
     private static final String STATE_WEBVIEW = "webview_state";
     private static final long SERVER_SETTINGS_SHORTCUT_WINDOW_MS = 1_500L;
+    private static final int MAX_PLAYBACK_ERROR_RECOVERIES = 1;
+    private static final int[] SERVER_SETTINGS_SHORTCUT = new int[] {
+        KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_CENTER
+    };
 
     private WebView webView;
     private PlayerView playerView;
-    private Button openServerSettingsButton;
     private FrameLayout serverSettingsOverlay;
     private EditText startUrlInput;
     private EditText backendUrlInput;
@@ -62,7 +70,10 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     private String deviceId;
     private boolean webAppReady = false;
     private long lastBackPressAt = 0L;
-    private int backPressStreak = 0;
+    private int serverSettingsShortcutIndex = 0;
+    private long lastPlaybackStartAt = 0L;
+    private int playbackErrorRecoveries = 0;
+    private String currentPlaybackUrl = "";
 
     private String currentLink = "";
     private String currentOriginName = "";
@@ -95,7 +106,6 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         deviceId = DeviceId.get(this);
         webView = findViewById(R.id.web_view);
         playerView = findViewById(R.id.player_view);
-        openServerSettingsButton = findViewById(R.id.open_server_settings_button);
         serverSettingsOverlay = findViewById(R.id.server_settings_overlay);
         startUrlInput = findViewById(R.id.server_settings_start_url);
         backendUrlInput = findViewById(R.id.server_settings_backend_url);
@@ -161,7 +171,6 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     }
 
     private void setupServerSettings() {
-        openServerSettingsButton.setOnClickListener(v -> showServerSettings());
         Button presetProdButton = findViewById(R.id.server_settings_preset_prod);
         Button presetNetworkButton = findViewById(R.id.server_settings_preset_network);
         Button cancelButton = findViewById(R.id.server_settings_cancel);
@@ -262,18 +271,24 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     }
 
     private boolean handleServerSettingsShortcut(KeyEvent event) {
-        if (event.getKeyCode() != KeyEvent.KEYCODE_BACK || event.getAction() != KeyEvent.ACTION_DOWN) {
+        if (event.getAction() != KeyEvent.ACTION_DOWN) {
             return false;
         }
         long now = System.currentTimeMillis();
-        if (now - lastBackPressAt <= SERVER_SETTINGS_SHORTCUT_WINDOW_MS) {
-            backPressStreak += 1;
-        } else {
-            backPressStreak = 1;
+        if (now - lastBackPressAt > SERVER_SETTINGS_SHORTCUT_WINDOW_MS) {
+            serverSettingsShortcutIndex = 0;
         }
         lastBackPressAt = now;
-        if (backPressStreak >= 3) {
-            backPressStreak = 0;
+
+        int keyCode = event.getKeyCode();
+        if (keyCode == SERVER_SETTINGS_SHORTCUT[serverSettingsShortcutIndex]) {
+            serverSettingsShortcutIndex += 1;
+        } else {
+            serverSettingsShortcutIndex = keyCode == SERVER_SETTINGS_SHORTCUT[0] ? 1 : 0;
+        }
+
+        if (serverSettingsShortcutIndex >= SERVER_SETTINGS_SHORTCUT.length) {
+            serverSettingsShortcutIndex = 0;
             showServerSettings();
             return true;
         }
@@ -315,12 +330,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request != null && request.isForMainFrame()) {
-                    mainHandler.post(() -> {
-                        openServerSettingsButton.setVisibility(View.VISIBLE);
-                        openServerSettingsButton.setFocusable(true);
-                        openServerSettingsButton.setFocusableInTouchMode(true);
-                        openServerSettingsButton.requestFocus();
-                    });
+                    mainHandler.post(MainActivity.this::showServerSettings);
                 }
             }
         });
@@ -340,6 +350,9 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         player.addListener(new Player.Listener() {
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
+                if (tryRecoverPlayback()) {
+                    return;
+                }
                 ProgressReporter.reportImmediate(getStatus());
                 ProgressReporter.stop();
                 sendPlayerNotification("Player.OnStop");
@@ -442,13 +455,17 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         currentMovieId = movieId != null ? movieId : "";
         currentSeason = season;
         currentEpisode = episode;
-        currentUserId = userId != null ? userId : "";
+        currentUserId = (userId != null && !userId.isBlank())
+            ? userId
+            : (TvSession.hasSelectedProfile(this) ? String.valueOf(TvSession.getProfileId(this)) : "");
         currentTorrentHash = torrentHash != null ? torrentHash : "";
         currentTorrentFileId = torrentFileId;
         currentTorrentFname = torrentFname != null ? torrentFname : "";
         currentTorrentMagnet = torrentMagnet != null ? torrentMagnet : "";
 
         MediaItem mediaItem = new MediaItem.Builder().setUri(Uri.parse(normalizedUrl)).build();
+        currentPlaybackUrl = normalizedUrl;
+        playbackErrorRecoveries = 0;
         player.setMediaItem(mediaItem);
         player.prepare();
         if (positionMs > 0) {
@@ -457,6 +474,9 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         }
         playerView.setVisibility(View.VISIBLE);
         webView.setVisibility(View.GONE);
+        lastPlaybackStartAt = System.currentTimeMillis();
+        ProgressReporter.initialize(this);
+        ProgressReporter.reportImmediate(getStatus());
         player.play();
         playerView.requestFocus();
     }
@@ -515,7 +535,6 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         clearCurrentMedia();
         playerView.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
-        openServerSettingsButton.setVisibility(View.VISIBLE);
         webView.requestFocus();
     }
 
@@ -532,6 +551,34 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         currentTorrentFileId = null;
         currentTorrentFname = "";
         currentTorrentMagnet = "";
+        currentPlaybackUrl = "";
+        playbackErrorRecoveries = 0;
+    }
+
+    private boolean tryRecoverPlayback() {
+        if (!isPlayerVisible() || player == null || currentPlaybackUrl == null || currentPlaybackUrl.isBlank()) {
+            return false;
+        }
+        if (playbackErrorRecoveries >= MAX_PLAYBACK_ERROR_RECOVERIES) {
+            return false;
+        }
+        playbackErrorRecoveries += 1;
+        long resumePositionMs = Math.max(player.getCurrentPosition(), 0L);
+        mainHandler.postDelayed(() -> {
+            if (!isPlayerVisible() || player == null || currentPlaybackUrl == null || currentPlaybackUrl.isBlank()) {
+                return;
+            }
+            MediaItem mediaItem = new MediaItem.Builder().setUri(Uri.parse(currentPlaybackUrl)).build();
+            player.setMediaItem(mediaItem);
+            player.prepare();
+            if (resumePositionMs > 0L) {
+                player.seekTo(resumePositionMs);
+                ProgressReporter.syncPosition(resumePositionMs);
+            }
+            lastPlaybackStartAt = System.currentTimeMillis();
+            player.play();
+        }, 300L);
+        return true;
     }
 
     private void pausePlayer() {
@@ -800,19 +847,6 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
             return true;
         }
 
-        if (!isPlayerVisible()
-            && openServerSettingsButton.getVisibility() == View.VISIBLE
-            && openServerSettingsButton.isFocusable()) {
-            if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP && webView.hasFocus()) {
-                openServerSettingsButton.requestFocus();
-                return true;
-            }
-            if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN && openServerSettingsButton.hasFocus()) {
-                webView.requestFocus();
-                return true;
-            }
-        }
-
         if (isPlayerVisible()) {
             if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
                 closePlayer(true);
@@ -834,11 +868,15 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
             }
             if (event.getKeyCode() == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
                 || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER) {
+                if (System.currentTimeMillis() - lastPlaybackStartAt < PLAY_TOGGLE_GUARD_MS) {
+                    return true;
+                }
                 if (player.isPlaying()) {
                     player.pause();
                 } else {
                     player.play();
                 }
+                return true;
             }
         }
 
@@ -883,7 +921,13 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
 
     @Override
     public void onStop() {
-        mainHandler.post(() -> closePlayer(true));
+        super.onStop();
+        progressHandler.removeCallbacks(progressRunnable);
+        ProgressReporter.reportImmediate(getStatus());
+        ProgressReporter.stop();
+        if (player != null && player.isPlaying()) {
+            player.pause();
+        }
     }
 
     @Override
@@ -915,7 +959,9 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
             if (currentEpisode != null) {
                 obj.put("episode", currentEpisode);
             }
-            obj.put("user_id", currentUserId);
+            obj.put("user_id", (currentUserId != null && !currentUserId.isBlank())
+                ? currentUserId
+                : (TvSession.hasSelectedProfile(this) ? String.valueOf(TvSession.getProfileId(this)) : ""));
             obj.put("torrent_hash", currentTorrentHash);
             if (currentTorrentFileId != null) {
                 obj.put("torrent_file_id", currentTorrentFileId);

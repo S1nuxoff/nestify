@@ -33,6 +33,7 @@ class StreamFile(BaseModel):
     size: int
     file_id: int
     stream_url: str
+    stream_url_direct: str | None = None
 
 
 class AddTorrentResponse(BaseModel):
@@ -50,6 +51,9 @@ class TorrentStatus(BaseModel):
     upload_speed: float
     peers_total: int
     peers_connected: int
+    preloaded_bytes: int = 0
+    preload_size: int = 0
+    preload_progress: float = 0
     files: list[StreamFile]
 
 

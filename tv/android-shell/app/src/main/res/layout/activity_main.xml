@@ -15,21 +15,6 @@
         android:focusable="true"
         android:focusableInTouchMode="true" />
 
-    <Button
-        android:id="@+id/open_server_settings_button"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_margin="20dp"
-        android:backgroundTint="#CC1A1A1A"
-        android:elevation="8dp"
-        android:focusable="false"
-        android:focusableInTouchMode="false"
-        android:text="Server Settings"
-        android:textAllCaps="false"
-        android:textColor="#FFFFFF"
-        android:visibility="gone" />
-
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_view"
         android:layout_width="match_parent"
@@ -89,7 +74,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:focusable="true"
-                    android:text="Local" />
+                    android:text="Network" />
 
                 <Button
                     android:id="@+id/server_settings_preset_network"
@@ -98,7 +83,7 @@
                     android:layout_marginStart="12dp"
                     android:layout_weight="1"
                     android:focusable="true"
-                    android:text="Network" />
+                    android:text="Local" />
             </LinearLayout>
 
             <EditText

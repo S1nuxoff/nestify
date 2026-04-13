@@ -5,7 +5,6 @@ import logoUrl from "../assets/icons/logo.svg";
 import {
   androidCreateQrLogin,
   androidLoginAccount,
-  androidOpenServerSettings,
   androidPollQrLogin,
   isAndroidBridge,
 } from "../api/AndroidBridge";
@@ -37,13 +36,12 @@ export default function AuthLoginPage() {
   const passRef   = useRef(null);
   const submitRef = useRef(null);
   const qrRef     = useRef(null);
-  const serverRef = useRef(null);
   const switchRef = useRef(null);
 
   const fields = showQrPanel
-    ? (isAndroidBridge() ? [serverRef, qrRef, switchRef] : [qrRef, switchRef])
+    ? [qrRef, switchRef]
     : (isAndroidBridge()
-        ? [serverRef, emailRef, passRef, submitRef, qrRef, switchRef]
+        ? [emailRef, passRef, submitRef, qrRef, switchRef]
         : [emailRef, passRef, submitRef, switchRef]);
 
   if (hasAccountSession()) {
@@ -164,17 +162,6 @@ export default function AuthLoginPage() {
 
   return (
     <div className="auth-page">
-      {isAndroidBridge() && (
-        <button
-          ref={serverRef}
-          className="auth-server-settings-btn"
-          type="button"
-          onClick={androidOpenServerSettings}
-        >
-          Server Settings
-        </button>
-      )}
-
       <img src={logoUrl} className="auth-logo" alt="Nestify" />
 
       <div className="auth-body">

@@ -66,7 +66,8 @@ async def add_torrent(magnet: str, title: str = "", poster: str = "") -> dict:
             raise HTTPException(502, "TorrServe didn't return hash")
 
         files = []
-        for _ in range(20):
+        poll_delays = [0.35] * 6 + [0.75] * 8 + [1.5] * 10
+        for delay in poll_delays:
             r = await _post_torrserve(
                 client,
                 "/torrents",
@@ -77,7 +78,7 @@ async def add_torrent(magnet: str, title: str = "", poster: str = "") -> dict:
             files = info.get("file_stats") or info.get("files") or []
             if files:
                 break
-            await asyncio.sleep(2)
+            await asyncio.sleep(delay)
 
     if not files:
         raise HTTPException(504, "TorrServe: files not ready in 40 seconds")
@@ -107,6 +108,9 @@ async def get_torrent_status(hash_: str) -> dict:
             "upload_speed": info.get("upload_speed", 0),
             "peers_total": info.get("peers_total", 0),
             "peers_connected": info.get("peers_connected", 0),
+            "preloaded_bytes": int(info.get("preloaded_bytes", 0) or 0),
+            "preload_size": int(info.get("preload_size", 0) or 0),
+            "preload_progress": _preload_progress(info),
             "files": _build_stream_files(hash_, files),
         }
 
@@ -143,3 +147,11 @@ def _build_stream_files(hash_: str, files: list) -> list[dict]:
             }
         )
     return result
+
+
+def _preload_progress(info: dict) -> float:
+    preload_size = int(info.get("preload_size", 0) or 0)
+    preloaded_bytes = int(info.get("preloaded_bytes", 0) or 0)
+    if preload_size <= 0:
+        return 0.0
+    return max(0.0, min(1.0, preloaded_bytes / preload_size))
