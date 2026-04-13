@@ -19,6 +19,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
         versionName "1.1.0"
+        buildConfigField "String", "LOCAL_START_URL", "\"http://192.168.0.178:5174/\""
+        buildConfigField "String", "LOCAL_BACKEND_BASE_URL", "\"http://192.168.0.178:8000\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -33,6 +35,8 @@ android {
 
     buildTypes {
         debug {
+            resValue "string", "app_name", "Nestify Dev"
+            resValue "string", "title_activity_main", "Nestify Dev"
             buildConfigField "String", "START_URL", "\"https://tv.nestify.club/\""
             buildConfigField "String", "BACKEND_BASE_URL", "\"https://api.nestify.club\""
             buildConfigField "String", "WS_BASE_URL", "\"wss://api.nestify.club\""
@@ -41,6 +45,8 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
+            resValue "string", "app_name", "Nestify"
+            resValue "string", "title_activity_main", "Nestify"
             buildConfigField "String", "START_URL", "\"https://tv.nestify.club/\""
             buildConfigField "String", "BACKEND_BASE_URL", "\"https://api.nestify.club\""
             buildConfigField "String", "WS_BASE_URL", "\"wss://api.nestify.club\""
@@ -54,7 +60,9 @@ android {
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            outputFileName = "NestifyTV-${variant.name}.apk"
+            outputFileName = variant.name == "debug"
+                ? "NestifyTV-dev.apk"
+                : "NestifyTV-release.apk"
         }
     }
 }

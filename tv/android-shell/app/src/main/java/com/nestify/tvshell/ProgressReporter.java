@@ -1,5 +1,7 @@
 package com.nestify.tvshell;
 
+import android.content.Context;
+
 import org.json.JSONObject;
 
 import java.io.OutputStream;
@@ -13,6 +15,7 @@ final class ProgressReporter {
     private static long lastSentPosMs = -1L;
     private static Thread thread;
     private static volatile boolean running = false;
+    private static Context appContext;
 
     private ProgressReporter() {
     }
@@ -21,10 +24,11 @@ final class ProgressReporter {
         JSONObject getStatus();
     }
 
-    static synchronized void start(StatusProvider provider) {
+    static synchronized void start(Context context, StatusProvider provider) {
         if (running) {
             return;
         }
+        appContext = context.getApplicationContext();
         running = true;
         thread = new Thread(() -> {
             while (running) {
@@ -91,7 +95,10 @@ final class ProgressReporter {
 
         HttpURLConnection conn = null;
         try {
-            URL url = new URL(BuildConfig.BACKEND_BASE_URL + "/api/v3/watch/progress");
+            if (appContext == null) {
+                return;
+            }
+            URL url = new URL(ServerConfig.getBackendBaseUrl(appContext) + "/api/v3/watch/progress");
             conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");

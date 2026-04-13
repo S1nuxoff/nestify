@@ -10,10 +10,15 @@ import android.os.Looper;
 import android.util.Base64;
 import android.view.KeyEvent;
 import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.TextView;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceError;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -39,15 +44,25 @@ import java.net.URL;
 public class MainActivity extends AppCompatActivity implements PlayerWsClient.Listener {
     private static final String BRIDGE_NAME = "AndroidBridge";
     private static final long PRECISE_SEEK_MS = 5_000L;
+    private static final String STATE_WEBVIEW = "webview_state";
+    private static final long SERVER_SETTINGS_SHORTCUT_WINDOW_MS = 1_500L;
 
     private WebView webView;
     private PlayerView playerView;
+    private Button openServerSettingsButton;
+    private FrameLayout serverSettingsOverlay;
+    private EditText startUrlInput;
+    private EditText backendUrlInput;
+    private TextView wsPreviewText;
+    private TextView serverSettingsErrorText;
     private ExoPlayer player;
     private PlayerWsClient playerWsClient;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Handler progressHandler = new Handler(Looper.getMainLooper());
     private String deviceId;
     private boolean webAppReady = false;
+    private long lastBackPressAt = 0L;
+    private int backPressStreak = 0;
 
     private String currentLink = "";
     private String currentOriginName = "";
@@ -80,12 +95,28 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         deviceId = DeviceId.get(this);
         webView = findViewById(R.id.web_view);
         playerView = findViewById(R.id.player_view);
+        openServerSettingsButton = findViewById(R.id.open_server_settings_button);
+        serverSettingsOverlay = findViewById(R.id.server_settings_overlay);
+        startUrlInput = findViewById(R.id.server_settings_start_url);
+        backendUrlInput = findViewById(R.id.server_settings_backend_url);
+        wsPreviewText = findViewById(R.id.server_settings_ws_preview);
+        serverSettingsErrorText = findViewById(R.id.server_settings_error);
 
         setupPlayer();
+        setupServerSettings();
         setupWebView();
         setupBackHandler();
         restoreNativeSession();
-        webView.loadUrl(BuildConfig.START_URL);
+        if (savedInstanceState != null) {
+            Bundle webViewState = savedInstanceState.getBundle(STATE_WEBVIEW);
+            if (webViewState != null) {
+                webView.restoreState(webViewState);
+            } else {
+                loadConfiguredStartUrl();
+            }
+        } else {
+            loadConfiguredStartUrl();
+        }
     }
 
     private void restoreNativeSession() {
@@ -99,7 +130,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
 
         new Thread(() -> {
             String token = TvSession.getAuthToken(MainActivity.this);
-            if (token == null || TvApiClient.validateToken(BuildConfig.BACKEND_BASE_URL, token)) {
+            if (token == null || TvApiClient.validateToken(getBackendBaseUrl(), token)) {
                 return;
             }
 
@@ -107,10 +138,146 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
                 disconnectPlayerWs();
                 TvSession.clear(MainActivity.this);
                 if (webAppReady && webView != null) {
-                    webView.loadUrl(BuildConfig.START_URL);
+                    loadConfiguredStartUrl();
                 }
             });
         }).start();
+    }
+
+    private String getStartUrl() {
+        return ServerConfig.getStartUrl(this);
+    }
+
+    private String getBackendBaseUrl() {
+        return ServerConfig.getBackendBaseUrl(this);
+    }
+
+    private String getWsBaseUrl() {
+        return ServerConfig.getWsBaseUrl(this);
+    }
+
+    private void loadConfiguredStartUrl() {
+        webView.loadUrl(getStartUrl());
+    }
+
+    private void setupServerSettings() {
+        openServerSettingsButton.setOnClickListener(v -> showServerSettings());
+        Button presetProdButton = findViewById(R.id.server_settings_preset_prod);
+        Button presetNetworkButton = findViewById(R.id.server_settings_preset_network);
+        Button cancelButton = findViewById(R.id.server_settings_cancel);
+        Button resetButton = findViewById(R.id.server_settings_reset);
+        Button saveButton = findViewById(R.id.server_settings_save);
+
+        startUrlInput.setText(getStartUrl());
+        backendUrlInput.setText(getBackendBaseUrl());
+        updateWsPreview();
+
+        presetProdButton.setOnClickListener(v -> {
+            startUrlInput.setText(BuildConfig.START_URL);
+            backendUrlInput.setText(BuildConfig.BACKEND_BASE_URL);
+            serverSettingsErrorText.setVisibility(View.GONE);
+            updateWsPreview();
+        });
+        presetNetworkButton.setOnClickListener(v -> {
+            startUrlInput.setText(BuildConfig.LOCAL_START_URL);
+            backendUrlInput.setText(BuildConfig.LOCAL_BACKEND_BASE_URL);
+            serverSettingsErrorText.setVisibility(View.GONE);
+            updateWsPreview();
+        });
+        cancelButton.setOnClickListener(v -> hideServerSettings());
+        resetButton.setOnClickListener(v -> {
+            ServerConfig.reset(MainActivity.this);
+            startUrlInput.setText(getStartUrl());
+            backendUrlInput.setText(getBackendBaseUrl());
+            serverSettingsErrorText.setVisibility(View.GONE);
+            updateWsPreview();
+            applyServerConfig(false);
+        });
+        saveButton.setOnClickListener(v -> {
+            String startUrl = ServerConfig.normalizeHttpUrl(startUrlInput.getText().toString());
+            String backendUrl = ServerConfig.normalizeBackendUrl(backendUrlInput.getText().toString());
+            if (startUrl.isBlank() || backendUrl.isBlank()) {
+                serverSettingsErrorText.setText("Both URLs are required.");
+                serverSettingsErrorText.setVisibility(View.VISIBLE);
+                return;
+            }
+            ServerConfig.save(MainActivity.this, startUrl, backendUrl);
+            serverSettingsErrorText.setVisibility(View.GONE);
+            applyServerConfig(true);
+        });
+
+        View.OnFocusChangeListener listener = (v, hasFocus) -> updateWsPreview();
+        startUrlInput.setOnFocusChangeListener(listener);
+        backendUrlInput.setOnFocusChangeListener(listener);
+    }
+
+    private void applyServerConfig(boolean reloadWebView) {
+        disconnectPlayerWs();
+        if (TvSession.hasSelectedProfile(this)) {
+            ensurePlayerWsConnected();
+        }
+        if (reloadWebView && webView != null) {
+            loadConfiguredStartUrl();
+        }
+        hideServerSettings();
+    }
+
+    private void updateWsPreview() {
+        String backendUrl = ServerConfig.normalizeBackendUrl(backendUrlInput.getText().toString());
+        String wsUrl = backendUrl.isBlank() ? getWsBaseUrl() : deriveWsPreview(backendUrl);
+        wsPreviewText.setText("WS URL will be derived automatically: " + wsUrl);
+    }
+
+    private String deriveWsPreview(String backendUrl) {
+        try {
+            URL url = new URL(backendUrl);
+            String scheme = "https".equalsIgnoreCase(url.getProtocol()) ? "wss" : "ws";
+            StringBuilder out = new StringBuilder();
+            out.append(scheme).append("://").append(url.getHost());
+            if (url.getPort() != -1) {
+                out.append(":").append(url.getPort());
+            }
+            return out.toString();
+        } catch (Exception ignored) {
+            return getWsBaseUrl();
+        }
+    }
+
+    private void showServerSettings() {
+        startUrlInput.setText(getStartUrl());
+        backendUrlInput.setText(getBackendBaseUrl());
+        updateWsPreview();
+        serverSettingsErrorText.setVisibility(View.GONE);
+        serverSettingsOverlay.setVisibility(View.VISIBLE);
+        startUrlInput.requestFocus();
+    }
+
+    private void hideServerSettings() {
+        serverSettingsOverlay.setVisibility(View.GONE);
+        if (isPlayerVisible()) {
+            playerView.requestFocus();
+        } else {
+            webView.requestFocus();
+        }
+    }
+
+    private boolean handleServerSettingsShortcut(KeyEvent event) {
+        if (event.getKeyCode() != KeyEvent.KEYCODE_BACK || event.getAction() != KeyEvent.ACTION_DOWN) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastBackPressAt <= SERVER_SETTINGS_SHORTCUT_WINDOW_MS) {
+            backPressStreak += 1;
+        } else {
+            backPressStreak = 1;
+        }
+        lastBackPressAt = now;
+        if (backPressStreak >= 3) {
+            backPressStreak = 0;
+            showServerSettings();
+            return true;
+        }
+        return false;
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
@@ -143,6 +310,18 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return false;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request != null && request.isForMainFrame()) {
+                    mainHandler.post(() -> {
+                        openServerSettingsButton.setVisibility(View.VISIBLE);
+                        openServerSettingsButton.setFocusable(true);
+                        openServerSettingsButton.setFocusableInTouchMode(true);
+                        openServerSettingsButton.requestFocus();
+                    });
+                }
             }
         });
         webView.addJavascriptInterface(new AndroidBridge(), BRIDGE_NAME);
@@ -186,7 +365,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
                 ProgressReporter.reportImmediate(getStatus());
                 progressHandler.removeCallbacks(progressRunnable);
                 if (isPlaying) {
-                    ProgressReporter.start(MainActivity.this::getStatus);
+                    ProgressReporter.start(MainActivity.this, MainActivity.this::getStatus);
                     progressHandler.postDelayed(progressRunnable, 5000L);
                 } else {
                     ProgressReporter.stop();
@@ -289,7 +468,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
 
         try {
             URL parsed = new URL(rawUrl);
-            URL base = new URL(BuildConfig.BACKEND_BASE_URL);
+            URL base = new URL(getBackendBaseUrl());
             String query = parsed.getQuery();
             StringBuilder filteredQuery = new StringBuilder();
 
@@ -336,6 +515,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         clearCurrentMedia();
         playerView.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
+        openServerSettingsButton.setVisibility(View.VISIBLE);
         webView.requestFocus();
     }
 
@@ -388,7 +568,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
             return;
         }
         if (playerWsClient == null) {
-            playerWsClient = new PlayerWsClient(BuildConfig.WS_BASE_URL, deviceId, this);
+            playerWsClient = new PlayerWsClient(getWsBaseUrl(), deviceId, this);
         }
         playerWsClient.connect();
     }
@@ -432,7 +612,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     private String handleLogin(String email, String password) {
         try {
             JSONObject result = TvApiClient.login(
-                BuildConfig.BACKEND_BASE_URL,
+                getBackendBaseUrl(),
                 email,
                 password,
                 deviceId,
@@ -469,7 +649,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     private String handleCreateQrLogin() {
         try {
             JSONObject result = TvApiClient.qrCreate(
-                BuildConfig.BACKEND_BASE_URL,
+                getBackendBaseUrl(),
                 deviceId,
                 TvSession.getDeviceName(this)
             );
@@ -482,7 +662,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
 
     private String handlePollQrLogin(String token) {
         try {
-            JSONObject result = TvApiClient.qrPoll(BuildConfig.BACKEND_BASE_URL, token);
+            JSONObject result = TvApiClient.qrPoll(getBackendBaseUrl(), token);
             if (result.optBoolean("confirmed", false)) {
                 JSONObject account = result.getJSONObject("account");
                 JSONArray profiles = result.optJSONArray("profiles");
@@ -511,7 +691,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         }
         try {
             TvApiClient.registerDevice(
-                BuildConfig.BACKEND_BASE_URL,
+                getBackendBaseUrl(),
                 token,
                 deviceId,
                 profileId,
@@ -532,7 +712,7 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         closePlayer(false);
         if (token != null) {
             try {
-                TvApiClient.logoutDevice(BuildConfig.BACKEND_BASE_URL, token, deviceId);
+                TvApiClient.logoutDevice(getBackendBaseUrl(), token, deviceId);
             } catch (Exception ignored) {
             }
         }
@@ -572,6 +752,16 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     }
 
     @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (webView != null) {
+            Bundle webViewState = new Bundle();
+            webView.saveState(webViewState);
+            outState.putBundle(STATE_WEBVIEW, webViewState);
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         progressHandler.removeCallbacks(progressRunnable);
         disconnectPlayerWs();
@@ -591,6 +781,36 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() != KeyEvent.ACTION_DOWN) {
             return super.dispatchKeyEvent(event);
+        }
+
+        if (serverSettingsOverlay.getVisibility() == View.VISIBLE) {
+            if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+                hideServerSettings();
+                return true;
+            }
+            return super.dispatchKeyEvent(event);
+        }
+
+        if (!isPlayerVisible() && handleServerSettingsShortcut(event)) {
+            return true;
+        }
+
+        if (event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
+            showServerSettings();
+            return true;
+        }
+
+        if (!isPlayerVisible()
+            && openServerSettingsButton.getVisibility() == View.VISIBLE
+            && openServerSettingsButton.isFocusable()) {
+            if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP && webView.hasFocus()) {
+                openServerSettingsButton.requestFocus();
+                return true;
+            }
+            if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN && openServerSettingsButton.hasFocus()) {
+                webView.requestFocus();
+                return true;
+            }
         }
 
         if (isPlayerVisible()) {
@@ -824,6 +1044,16 @@ public class MainActivity extends AppCompatActivity implements PlayerWsClient.Li
         @JavascriptInterface
         public boolean isReady() {
             return webAppReady;
+        }
+
+        @JavascriptInterface
+        public String getServerConfig() {
+            return ServerConfig.toJson(MainActivity.this).toString();
+        }
+
+        @JavascriptInterface
+        public void openServerSettings() {
+            mainHandler.post(MainActivity.this::showServerSettings);
         }
     }
 }

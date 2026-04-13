@@ -167,6 +167,10 @@ export function androidLogoutAccount() {
   return parseBridgeJson(b.logoutAccount(), "Failed to logout TV account");
 }
 
+export function androidOpenServerSettings() {
+  bridge()?.openServerSettings?.();
+}
+
 export function playWithAndroidBridgeOrFallback({
   url,
   title,

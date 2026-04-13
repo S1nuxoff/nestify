@@ -6,15 +6,15 @@ import { findNearest, focusFirst, recordFocus, scrollIntoFocus, scrollRowToTop }
  * Covers: standard browsers, Samsung Orsay/Tizen, LG WebOS.
  */
 function keyCodeToDir(code) {
-  if (code === 37 || code === 4)     return "left";
-  if (code === 39 || code === 5)     return "right";
-  if (code === 38 || code === 29460) return "up";
-  if (code === 40 || code === 29461) return "down";
+  if (code === 21 || code === 37 || code === 4)     return "left";
+  if (code === 22 || code === 39 || code === 5)     return "right";
+  if (code === 19 || code === 38 || code === 29460) return "up";
+  if (code === 20 || code === 40 || code === 29461) return "down";
   return null;
 }
 
 function isEnter(code) {
-  return code === 13 || code === 29443 || code === 65385 || code === 117;
+  return code === 13 || code === 23 || code === 66 || code === 29443 || code === 65385 || code === 117;
 }
 
 function isBack(code) {

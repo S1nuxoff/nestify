@@ -13,7 +13,6 @@ import nestifyPlayerClient from "../api/ws/nestifyPlayerClient";
 import config from "../core/config";
 import { addLikedMovie, removeLikedMovie, getLikedMovieStatus } from "../api/user";
 import { getProgress } from "../api/hdrezka/progressApi";
-import { addTorrent, getTorrentStatus, startHlsSession } from "../api/v3";
 import { getCurrentProfile } from "../core/session";
 import { useTvDevice } from "../hooks/useTvDevice";
 import "../styles/MoviePage.css";

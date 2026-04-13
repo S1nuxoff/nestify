@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { searchTorrents, addTorrent, getTorrentStatus, removeTorrent, preloadTorrent, getFileInfo, startHlsSession } from "../../api/v3";
+import { searchTorrents, addTorrent, getTorrentStatus, removeTorrent, preloadTorrent, getFileInfo } from "../../api/v3";
 import { X, PlayCircle, Loader2, Zap } from "lucide-react";
 import { getCurrentProfile } from "../../core/session";
 import { getCachedTorrents, setCachedTorrents, makeTorrentCacheKey } from "../../core/torrentCache";
@@ -199,46 +199,56 @@ export default function TorrentModal({
   /* ── preload ── */
   const startPreload = useCallback((type, file) => {
     setPendingAction({ type, file });
-    setPreloadInfo({ peers: 0, stat: 0, stat_string: "Підключення...", elapsed: 0 });
+    setPreloadInfo({
+      peers: 0,
+      stat: 0,
+      stat_string: "Підключення...",
+      elapsed: 0,
+      preload_progress: 0,
+    });
     setStep("preload");
     const hash = currentHash;
     preloadTorrent(hash, file.file_id).catch(() => {});
     let fileDurationSeconds = null;
-    let hlsSessionId = null;
-    let hlsPlaylistUrl = null;
     getFileInfo(hash, file.file_id).then(info => {
       const d = info?.format?.duration;
       if (d) fileDurationSeconds = parseFloat(d);
     }).catch(() => {});
-    if (type === "browser") {
-      const knownDuration = runtimeMinutes ? runtimeMinutes * 60 : 0;
-      startHlsSession(hash, file.file_id, file.name, 0, knownDuration).then(data => {
-        hlsSessionId = data.session_id;
-        hlsPlaylistUrl = data.playlist_url;
-      }).catch(() => {});
-    }
     let elapsed = 0;
     pollRef.current = setInterval(async () => {
       elapsed += 1;
       try {
         const s = await getTorrentStatus(hash);
         const stat = s.stat || 0;
-        setPreloadInfo({ peers: s.peers_connected || 0, stat, stat_string: s.stat_string || "", elapsed });
-        if (stat >= 3 || elapsed >= 12) {
+        const preloadProgress = Number(s.preload_progress || 0);
+        setPreloadInfo({
+          peers: s.peers_connected || 0,
+          stat,
+          stat_string: s.stat_string || "",
+          elapsed,
+          preload_progress: preloadProgress,
+        });
+        const readyByPreload = preloadProgress >= 0.15;
+        const readyByState = stat >= 3;
+        const softReady = elapsed >= 3 && (s.peers_connected || 0) > 0 && stat >= 2;
+        if (readyByPreload || readyByState || softReady) {
           clearInterval(pollRef.current);
-          executeAction(type, file, fileDurationSeconds, hlsSessionId, hlsPlaylistUrl);
+          executeAction(type, file, fileDurationSeconds);
         }
       } catch {
-        if (elapsed >= 10) { clearInterval(pollRef.current); executeAction(type, file, fileDurationSeconds, hlsSessionId, hlsPlaylistUrl); }
+        if (elapsed >= 4) {
+          clearInterval(pollRef.current);
+          executeAction(type, file, fileDurationSeconds);
+        }
       }
     }, 1000);
   }, [currentHash]);
 
-  const executeAction = useCallback((type, file, durationSeconds = null, hlsSessionId = null, hlsPlaylistUrl = null) => {
+  const executeAction = useCallback((type, file, durationSeconds = null) => {
     playingRef.current = true;
     if (type === "browser") {
-      const hlsInfo = { sessionId: hlsSessionId, hash: currentHash, fileId: file.file_id, fname: file.name, magnet: selectedMagnetRef.current };
-      if (onPlayInBrowser) onPlayInBrowser(file, durationSeconds, hlsInfo, hlsPlaylistUrl);
+      const hlsInfo = { sessionId: null, hash: currentHash, fileId: file.file_id, fname: file.name, magnet: selectedMagnetRef.current };
+      if (onPlayInBrowser) onPlayInBrowser(file, durationSeconds, hlsInfo, null);
       else window.open(file.stream_url, "_blank");
     } else {
       const tvFile = { ...file, stream_url: file.stream_url_direct || file.stream_url, hash: currentHash };

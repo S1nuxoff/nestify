@@ -5,6 +5,7 @@ import logoUrl from "../assets/icons/logo.svg";
 import {
   androidCreateQrLogin,
   androidLoginAccount,
+  androidOpenServerSettings,
   androidPollQrLogin,
   isAndroidBridge,
 } from "../api/AndroidBridge";
@@ -18,9 +19,9 @@ import {
 import TvKeyboard from "../components/ui/TvKeyboard";
 import "../styles/Auth.css";
 
-const ENTER_CODES = new Set([13, 29443, 65385, 117]);
-const UP_CODES    = new Set([38, 29460]);
-const DOWN_CODES  = new Set([40, 29461]);
+const ENTER_CODES = new Set([13, 23, 66, 29443, 65385, 117]);
+const UP_CODES    = new Set([19, 38, 29460]);
+const DOWN_CODES  = new Set([20, 40, 29461]);
 
 export default function AuthLoginPage() {
   const navigate = useNavigate();
@@ -36,12 +37,14 @@ export default function AuthLoginPage() {
   const passRef   = useRef(null);
   const submitRef = useRef(null);
   const qrRef     = useRef(null);
+  const serverRef = useRef(null);
   const switchRef = useRef(null);
 
-  // ordered list of focusable refs
-  const fields = isAndroidBridge()
-    ? [emailRef, passRef, submitRef, qrRef, switchRef]
-    : [emailRef, passRef, submitRef, switchRef];
+  const fields = showQrPanel
+    ? (isAndroidBridge() ? [serverRef, qrRef, switchRef] : [qrRef, switchRef])
+    : (isAndroidBridge()
+        ? [serverRef, emailRef, passRef, submitRef, qrRef, switchRef]
+        : [emailRef, passRef, submitRef, switchRef]);
 
   if (hasAccountSession()) {
     return <Navigate to={hasSelectedProfile() ? "/" : "/profiles"} replace />;
@@ -144,22 +147,34 @@ export default function AuthLoginPage() {
     const onKey = (e) => {
       const code = e.keyCode || e.which;
       if (!UP_CODES.has(code) && !DOWN_CODES.has(code)) return;
-      const idx = fields.findIndex((r) => r.current === document.activeElement);
+      const visibleFields = fields.filter((ref) => ref.current && !ref.current.disabled);
+      const idx = visibleFields.findIndex((r) => r.current === document.activeElement);
       if (idx === -1) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       if (DOWN_CODES.has(code)) {
-        fields[Math.min(idx + 1, fields.length - 1)].current?.focus({ preventScroll: true });
+        visibleFields[Math.min(idx + 1, visibleFields.length - 1)].current?.focus({ preventScroll: true });
       } else {
-        fields[Math.max(idx - 1, 0)].current?.focus({ preventScroll: true });
+        visibleFields[Math.max(idx - 1, 0)].current?.focus({ preventScroll: true });
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [kbField]);
+  }, [kbField, showQrPanel]);
 
   return (
     <div className="auth-page">
+      {isAndroidBridge() && (
+        <button
+          ref={serverRef}
+          className="auth-server-settings-btn"
+          type="button"
+          onClick={androidOpenServerSettings}
+        >
+          Server Settings
+        </button>
+      )}
+
       <img src={logoUrl} className="auth-logo" alt="Nestify" />
 
       <div className="auth-body">
@@ -205,15 +220,17 @@ export default function AuthLoginPage() {
           </button>
 
           {isAndroidBridge() && (
-            <button
-              ref={qrRef}
-              className="auth-btn"
-              type="button"
-              onClick={handleQrStart}
-              style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
-            >
-              Увійти через QR
-            </button>
+            <>
+              <button
+                ref={qrRef}
+                className="auth-btn"
+                type="button"
+                onClick={handleQrStart}
+                style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
+              >
+                Увійти через QR
+              </button>
+            </>
           )}
           </div>
         )}
